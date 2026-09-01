@@ -1,0 +1,102 @@
+name: Sync upstream
+
+on:
+  schedule:
+    - cron: '23 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: peerdb
+          fetch-depth: 0
+
+      - name: Find upstream release tag
+        id: tags
+        run: |
+          git remote add upstream https://github.com/golang/crypto
+          latest=$(git ls-remote --tags upstream 'v*' | awk -F/ '{print $NF}' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          current=$(git ls-remote --tags origin 'v*' | awk -F/ '{print $NF}' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          # Fork fixup tags use the patch slot, so compare on major.minor.
+          base="v$(echo "$current" | cut -d. -f1-2 | tr -d v).0"
+          if [ "$(printf '%s\n%s\n' "$latest" "$base" | sort -V | tail -1)" = "$base" ]; then
+            echo "Up to date: fork $current, upstream $latest"
+            echo "new=" >> "$GITHUB_OUTPUT"
+          else
+            echo "New upstream tag: $latest (fork is on $current)"
+            echo "new=$latest" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Cherry-pick fork commits onto new tag
+        if: steps.tags.outputs.new != ''
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git fetch --no-tags upstream tag '${{ steps.tags.outputs.new }}'
+          base=$(git merge-base HEAD '${{ steps.tags.outputs.new }}')
+          echo "Fork-local commits since $base:"
+          git log --oneline "$base"..HEAD
+          git checkout --detach '${{ steps.tags.outputs.new }}'
+          git cherry-pick "$base"..peerdb
+
+      - name: Determine PeerDB Go version
+        id: go
+        run: |
+          version=$(curl -fsSL https://raw.githubusercontent.com/PeerDB-io/peerdb/main/flow/go.mod | awk '/^go /{print $2}')
+          echo "PeerDB uses go $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ steps.go.outputs.version }}
+          check-latest: true
+          cache: false
+
+      # Only the root ssh package: ssh/test and ssh/agent replay recorded
+      # transcripts that hardcode upstream's 2 MiB window, so the patch
+      # invalidates them by design. The root package runs full in-memory
+      # handshakes against the patched code.
+      - name: Validate
+        run: |
+          go build ./...
+          go test ./ssh/
+
+      - name: Push tag
+        if: steps.tags.outputs.new != ''
+        run: |
+          git tag '${{ steps.tags.outputs.new }}'
+          git push origin 'refs/tags/${{ steps.tags.outputs.new }}'
+
+      - name: Open or bump failure issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          existing=$(gh issue list -R "${{ github.repository }}" --label sync-failure --state open --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" -R "${{ github.repository }}" --body "Still failing: $run_url"
+          else
+            gh label create sync-failure -R "${{ github.repository }}" --force --description 'Upstream sync is broken'
+            body="The upstream sync workflow failed: $run_url"$'\n\n'"Likely a cherry-pick conflict with a new upstream release, or an ssh test failure. See README's Maintenance section. This issue gets bumped daily until a run succeeds."
+            gh issue create -R "${{ github.repository }}" --title 'Upstream sync failing' --label sync-failure --body "$body"
+          fi
+
+      - name: Close failure issue on recovery
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          existing=$(gh issue list -R "${{ github.repository }}" --label sync-failure --state open --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue close "$existing" -R "${{ github.repository }}" --comment 'Sync succeeded; closing.'
+          fi
