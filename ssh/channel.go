@@ -20,8 +20,10 @@ const (
 	// sent in a single packet. As per RFC 4253, section 6.1, 32k is also
 	// the minimum.
 	channelMaxPacket = 1 << 15
-	// We follow OpenSSH here.
-	channelWindowSize = 64 * channelMaxPacket
+	// Upstream uses 64 packets (2 MiB), following OpenSSH. The larger
+	// receive window avoids throttling bulk CDC traffic on high-bandwidth,
+	// high-latency SSH links.
+	channelWindowSize = 256 * channelMaxPacket
 )
 
 // NewChannel represents an incoming request to a channel. It must either be
