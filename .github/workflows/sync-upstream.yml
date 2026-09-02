@@ -76,12 +76,15 @@ jobs:
           go build ./...
           go test ./ssh/
 
-      - name: Push branch and tag
+      # master mirrors the upstream base of the current release, so
+      # master...peerdb always shows the full fork delta.
+      - name: Push branch, tag, and upstream-base master
         if: steps.tags.outputs.new != ''
         run: |
           git push --force origin peerdb
           git tag '${{ steps.tags.outputs.new }}'
           git push origin 'refs/tags/${{ steps.tags.outputs.new }}'
+          git push origin "$(git rev-parse '${{ steps.tags.outputs.new }}^{commit}')":refs/heads/master
 
       - name: Open or bump failure issue
         if: failure()
