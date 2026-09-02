@@ -14,12 +14,13 @@ below link capacity.
 |---|---|---|
 | `peerdb` (default branch) | Latest upstream release tag + the fork-local commits: the patch, this README, the sync workflow | Sync workflow rebases and force-pushes it on each upstream release; manual changes via pull request |
 | `master` | The upstream base of the current release, unpatched | Fast-forwarded by the sync workflow |
-| `vX.Y.0` tags | Upstream tag `vX.Y.0` + the fork-local commits | Cut by the sync workflow |
-| `vX.Y.1`, `vX.Y.2`, … tags | Fork-only fixups on the same upstream base | Cut by hand |
+| `vX.Y.N` tags | Upstream tag `vX.Y.0` + the N fork-local commits | Cut by the sync workflow on upstream releases; by hand for releases in between |
 
-Tags are immutable: the Go module proxy pins tag→hash on first fetch, so a
-published tag must never move. Upstream only ever tags `vX.Y.0`, which
-leaves the patch slot free for fork fixups. The full fork delta is
+The patch version is the fork-local commit count. Upstream only ever tags
+`vX.Y.0` and the fork always carries at least one commit, so every fork tag
+gets a fresh name and a published tag is never moved or recreated — which is
+what the Go module proxy requires: it pins tag→hash on the first fetch.
+(`v0.55.0` predates this scheme.) The full fork delta is
 [`master...peerdb`](https://github.com/PeerDB-io/crypto/compare/master...peerdb).
 
 ## Staying current with upstream
@@ -54,9 +55,8 @@ that repo follows this repo's tags and opens the bump PRs.
   `ssh` test failure. Adjust the fork-local commits on `peerdb` via PR until
   they apply cleanly, then re-run the workflow.
 - **Changing the patch**: PR against `peerdb`. To release without waiting
-  for the next upstream tag, cherry-pick the fork-local commits onto the
-  current upstream base tag and push the next patch-slot tag; when `peerdb`
-  already sits on the current base, tag `peerdb` directly.
+  for the next upstream tag, tag `peerdb` as `vX.Y.N` (current upstream
+  base, N = the new fork-local commit count) and push the tag.
 - Keep the delta minimal.
 
 ## Scope
