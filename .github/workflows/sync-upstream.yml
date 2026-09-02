@@ -24,7 +24,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh api -X PUT 'repos/${{ github.repository }}/actions/workflows/sync-upstream.yml/enable'
 
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v3
         id: app-token
         with:
           app-id: ${{ secrets.FORK_SYNC_APP_ID }}
