@@ -12,7 +12,7 @@ below link capacity.
 
 | Ref | Contents | How it changes |
 |---|---|---|
-| `peerdb` (default branch) | The fork-local commits: the patch, this README, the sync workflow | Pull requests only |
+| `peerdb` (default branch) | Latest upstream release tag + the fork-local commits: the patch, this README, the sync workflow | Sync workflow rebases and force-pushes it on each upstream release; manual changes via pull request |
 | `master` | Upstream mirror from fork time; unused by the pipeline | Static |
 | `vX.Y.0` tags | Upstream tag `vX.Y.0` + the fork-local commits | Cut by the sync workflow |
 | `vX.Y.1`, `vX.Y.2`, … tags | Fork-only fixups on the same upstream base | Cut by hand |
@@ -27,11 +27,10 @@ leaves the patch slot free for fork fixups. To see the full delta:
 `.github/workflows/sync-upstream.yml` runs daily (and on manual dispatch):
 
 1. Checks upstream for a release tag newer than the fork's newest tag.
-2. Cherry-picks the fork-local commits from `peerdb` onto the new upstream
-   tag as a detached head; the `peerdb` branch itself is untouched.
+2. Rebases the fork-local commits onto the new upstream tag.
 3. Builds all packages and tests the root `ssh` package, using the Go
    version from PeerDB's `flow/go.mod`.
-4. Pushes the matching fork tag.
+4. Force-pushes `peerdb` and pushes the matching fork tag.
 
 On failure the workflow opens a `sync-failure` issue, comments on it on each
 subsequent failing day, and the next green run closes it.
