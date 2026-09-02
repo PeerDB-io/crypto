@@ -93,14 +93,19 @@ jobs:
           go build ./...
           go test ./ssh/
 
-      # master mirrors the upstream base of the current release, so
-      # master...peerdb always shows the full fork delta.
+      # The fork tag's patch version is the number of fork-local commits
+      # (upstream only tags vX.Y.0), so every cut gets a fresh tag name and
+      # published tags are never recreated. master mirrors the upstream base
+      # of the current release, so master...peerdb always shows the full
+      # fork delta.
       - name: Push branch, tag, and upstream-base master
         if: steps.tags.outputs.new != ''
         run: |
           git push --force origin peerdb
-          git tag '${{ steps.tags.outputs.new }}' peerdb
-          git push origin 'refs/tags/${{ steps.tags.outputs.new }}'
+          n=$(git rev-list --count '${{ steps.rebase.outputs.new_commit }}'..peerdb)
+          tag="$(echo '${{ steps.tags.outputs.new }}' | sed 's/\.0$//').$n"
+          git tag "$tag" peerdb
+          git push origin "refs/tags/$tag"
           git push origin '${{ steps.rebase.outputs.new_commit }}':refs/heads/master
 
       # Each failing run opens its own issue; a green run closes every open
