@@ -13,14 +13,14 @@ below link capacity.
 | Ref | Contents | How it changes |
 |---|---|---|
 | `peerdb` (default branch) | Latest upstream release tag + the fork-local commits: the patch, this README, the sync workflow | Sync workflow rebases and force-pushes it on each upstream release; manual changes via pull request |
-| `master` | Upstream mirror from fork time; unused by the pipeline | Static |
+| `master` | The upstream base of the current release, unpatched | Fast-forwarded by the sync workflow |
 | `vX.Y.0` tags | Upstream tag `vX.Y.0` + the fork-local commits | Cut by the sync workflow |
 | `vX.Y.1`, `vX.Y.2`, … tags | Fork-only fixups on the same upstream base | Cut by hand |
 
 Tags are immutable: the Go module proxy pins tag→hash on first fetch, so a
 published tag must never move. Upstream only ever tags `vX.Y.0`, which
-leaves the patch slot free for fork fixups. To see the full delta:
-`git diff vX.Y.0 <fork tag>` against the matching upstream tag.
+leaves the patch slot free for fork fixups. The full fork delta is
+[`master...peerdb`](https://github.com/PeerDB-io/crypto/compare/master...peerdb).
 
 ## Staying current with upstream
 
