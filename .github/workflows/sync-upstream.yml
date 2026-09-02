@@ -103,27 +103,25 @@ jobs:
           git push origin 'refs/tags/${{ steps.tags.outputs.new }}'
           git push origin '${{ steps.rebase.outputs.new_commit }}':refs/heads/master
 
-      - name: Open or bump failure issue
+      # Each failing run opens its own issue; a green run closes every open
+      # sync-failure issue. Alerting subscribes to issue open/close events,
+      # so each failure and each recovery notifies exactly once.
+      - name: Open failure issue
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          existing=$(gh issue list -R "${{ github.repository }}" --label sync-failure --state open --json number --jq '.[0].number // empty')
-          if [ -n "$existing" ]; then
-            gh issue comment "$existing" -R "${{ github.repository }}" --body "Still failing: $run_url"
-          else
-            gh label create sync-failure -R "${{ github.repository }}" --force --description 'Upstream sync is broken'
-            body="The upstream sync workflow failed: $run_url"$'\n\n'"Likely a rebase conflict with a new upstream release, or an ssh test failure. See README's Maintenance section. This issue gets bumped daily until a run succeeds."
-            gh issue create -R "${{ github.repository }}" --title 'Upstream sync failing' --label sync-failure --body "$body"
-          fi
+          gh label create sync-failure -R "${{ github.repository }}" --force --description 'Upstream sync is broken'
+          body="The upstream sync workflow failed: $run_url"$'\n\n'"Likely a rebase conflict with a new upstream release, or an ssh test failure. See README's Maintenance section. Each failing run opens a new issue; the next green run closes all open ones."
+          gh issue create -R "${{ github.repository }}" --title "Upstream sync failing ($(date -u +%Y-%m-%d))" --label sync-failure --body "$body"
 
-      - name: Close failure issue on recovery
+      - name: Close failure issues on recovery
         if: success()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          existing=$(gh issue list -R "${{ github.repository }}" --label sync-failure --state open --json number --jq '.[0].number // empty')
-          if [ -n "$existing" ]; then
-            gh issue close "$existing" -R "${{ github.repository }}" --comment 'Sync succeeded; closing.'
-          fi
+          gh issue list -R "${{ github.repository }}" --label sync-failure --state open --json number --jq '.[].number' \
+            | while read -r n; do
+                gh issue close "$n" -R "${{ github.repository }}" --comment 'Sync succeeded; closing.'
+              done
