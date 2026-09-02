@@ -6,15 +6,24 @@ on:
   workflow_dispatch:
 
 # Pushes use an app installation token; the built-in token only handles the
-# failure issue.
+# failure issue and the inactivity-timer reset.
 permissions:
   contents: read
   issues: write
+  actions: write
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
+      # GitHub disables cron workflows in public repos after 60 days without
+      # repository activity, and this repo is only active when upstream
+      # releases. Re-enabling an enabled workflow resets that timer.
+      - name: Reset the scheduled-workflow inactivity timer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT 'repos/${{ github.repository }}/actions/workflows/sync-upstream.yml/enable'
+
       - uses: actions/create-github-app-token@v2
         id: app-token
         with:
