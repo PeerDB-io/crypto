@@ -37,8 +37,9 @@ what the Go module proxy requires: it pins tag→hash on the first fetch.
    version from PeerDB's `flow/go.mod`.
 4. Force-pushes `peerdb` and pushes the target tag.
 
-Each failing run opens a fresh `sync-failure` issue; the next green run
-closes all open ones.
+A fully green run pings a heartbeat monitor as its last step; when pings
+stop — a failing run or a schedule that stopped firing — the team is
+alerted.
 
 Validation covers the root `ssh` package, which runs full in-memory
 handshakes against the patched code. The `ssh/test` and `ssh/agent`
@@ -54,10 +55,10 @@ that repo follows this repo's tags and opens the bump PRs.
 
 ## Maintenance
 
-- **Sync failure**: each open `sync-failure` issue links its failed run.
-  Typical causes: a rebase conflict with a new upstream release, or an
-  `ssh` test failure. Adjust the fork's commits on `peerdb` via PR until
-  they apply cleanly, then re-run the workflow.
+- **Sync failure**: check the latest run under Actions. Typical causes: a
+  rebase conflict with a new upstream release, or an `ssh` test failure.
+  Adjust the fork's commits on `peerdb` via PR until they apply cleanly,
+  then re-run the workflow.
 - **Changing the patch**: PR against `peerdb`, then re-run the workflow
   (manual dispatch) to cut the tag.
 - Keep the delta minimal.
