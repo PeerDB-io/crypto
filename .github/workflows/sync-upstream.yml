@@ -27,7 +27,7 @@ jobs:
       - uses: actions/create-github-app-token@v3
         id: app-token
         with:
-          app-id: ${{ secrets.FORK_SYNC_APP_ID }}
+          client-id: ${{ secrets.FORK_SYNC_APP_CLIENT_ID }}
           private-key: ${{ secrets.FORK_SYNC_APP_KEY }}
 
       - uses: actions/checkout@v7
