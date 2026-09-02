@@ -5,18 +5,27 @@ on:
     - cron: '23 6 * * *'
   workflow_dispatch:
 
+# Pushes use an app installation token; the built-in token only handles the
+# failure issue.
 permissions:
-  contents: write
+  contents: read
   issues: write
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ vars.FORK_SYNC_APP_ID }}
+          private-key: ${{ secrets.FORK_SYNC_APP_KEY }}
+
       - uses: actions/checkout@v5
         with:
           ref: peerdb
           fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Find upstream release tag
         id: tags
@@ -32,21 +41,18 @@ jobs:
             echo "Up to date: fork $current, upstream $latest"
             echo "new=" >> "$GITHUB_OUTPUT"
           else
-            echo "New upstream tag: $latest (fork is on $current)"
+            echo "New upstream tag: $latest (fork is on $current, base $base)"
             echo "new=$latest" >> "$GITHUB_OUTPUT"
+            echo "base=$base" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Cherry-pick fork commits onto new tag
+      - name: Rebase fork commits onto new tag
         if: steps.tags.outputs.new != ''
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git fetch --no-tags upstream tag '${{ steps.tags.outputs.new }}'
-          base=$(git merge-base HEAD '${{ steps.tags.outputs.new }}')
-          echo "Fork-local commits since $base:"
-          git log --oneline "$base"..HEAD
-          git checkout --detach '${{ steps.tags.outputs.new }}'
-          git cherry-pick "$base"..peerdb
+          git config user.name 'peerdb-fork-sync[bot]'
+          git config user.email 'peerdb-fork-sync[bot]@users.noreply.github.com'
+          git fetch --no-tags upstream tag '${{ steps.tags.outputs.base }}' tag '${{ steps.tags.outputs.new }}'
+          git rebase --onto '${{ steps.tags.outputs.new }}' '${{ steps.tags.outputs.base }}' peerdb
 
       - name: Determine PeerDB Go version
         id: go
@@ -70,9 +76,10 @@ jobs:
           go build ./...
           go test ./ssh/
 
-      - name: Push tag
+      - name: Push branch and tag
         if: steps.tags.outputs.new != ''
         run: |
+          git push --force origin peerdb
           git tag '${{ steps.tags.outputs.new }}'
           git push origin 'refs/tags/${{ steps.tags.outputs.new }}'
 
@@ -87,7 +94,7 @@ jobs:
             gh issue comment "$existing" -R "${{ github.repository }}" --body "Still failing: $run_url"
           else
             gh label create sync-failure -R "${{ github.repository }}" --force --description 'Upstream sync is broken'
-            body="The upstream sync workflow failed: $run_url"$'\n\n'"Likely a cherry-pick conflict with a new upstream release, or an ssh test failure. See README's Maintenance section. This issue gets bumped daily until a run succeeds."
+            body="The upstream sync workflow failed: $run_url"$'\n\n'"Likely a rebase conflict with a new upstream release, or an ssh test failure. See README's Maintenance section. This issue gets bumped daily until a run succeeds."
             gh issue create -R "${{ github.repository }}" --title 'Upstream sync failing' --label sync-failure --body "$body"
           fi
 
