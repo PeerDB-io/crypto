@@ -32,8 +32,8 @@ leaves the patch slot free for fork fixups. The full fork delta is
    version from PeerDB's `flow/go.mod`.
 4. Force-pushes `peerdb` and pushes the matching fork tag.
 
-On failure the workflow opens a `sync-failure` issue, comments on it on each
-subsequent failing day, and the next green run closes it.
+Each failing run opens a fresh `sync-failure` issue; the next green run
+closes all open ones.
 
 Validation covers the root `ssh` package, which runs full in-memory
 handshakes against the patched code. The `ssh/test` and `ssh/agent`
@@ -49,8 +49,8 @@ that repo follows this repo's tags and opens the bump PRs.
 
 ## Maintenance
 
-- **Sync failure**: the open `sync-failure` issue links the failed run.
-  Typical causes: a cherry-pick conflict with a new upstream release, or an
+- **Sync failure**: each open `sync-failure` issue links its failed run.
+  Typical causes: a rebase conflict with a new upstream release, or an
   `ssh` test failure. Adjust the fork-local commits on `peerdb` via PR until
   they apply cleanly, then re-run the workflow.
 - **Changing the patch**: PR against `peerdb`. To release without waiting
