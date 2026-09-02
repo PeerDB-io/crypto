@@ -46,13 +46,21 @@ jobs:
             echo "base=$base" >> "$GITHUB_OUTPUT"
           fi
 
+      # Upstream tag names collide with the fork's own (patched) tags, so the
+      # upstream tag is fetched into FETCH_HEAD instead of a local tag ref,
+      # and the rebase base is the merge-base rather than a tag name.
       - name: Rebase fork commits onto new tag
+        id: rebase
         if: steps.tags.outputs.new != ''
         run: |
           git config user.name 'peerdb-fork-sync[bot]'
           git config user.email 'peerdb-fork-sync[bot]@users.noreply.github.com'
-          git fetch --no-tags upstream tag '${{ steps.tags.outputs.base }}' tag '${{ steps.tags.outputs.new }}'
-          git rebase --onto '${{ steps.tags.outputs.new }}' '${{ steps.tags.outputs.base }}' peerdb
+          git fetch --no-tags upstream 'refs/tags/${{ steps.tags.outputs.new }}'
+          new_commit=$(git rev-parse 'FETCH_HEAD^{commit}')
+          base_commit=$(git merge-base HEAD "$new_commit")
+          echo "Rebasing $(git rev-list --count "$base_commit"..HEAD) fork commits from $base_commit onto $new_commit"
+          git rebase --onto "$new_commit" "$base_commit" peerdb
+          echo "new_commit=$new_commit" >> "$GITHUB_OUTPUT"
 
       - name: Determine PeerDB Go version
         id: go
@@ -82,9 +90,9 @@ jobs:
         if: steps.tags.outputs.new != ''
         run: |
           git push --force origin peerdb
-          git tag '${{ steps.tags.outputs.new }}'
+          git tag '${{ steps.tags.outputs.new }}' peerdb
           git push origin 'refs/tags/${{ steps.tags.outputs.new }}'
-          git push origin "$(git rev-parse '${{ steps.tags.outputs.new }}^{commit}')":refs/heads/master
+          git push origin '${{ steps.rebase.outputs.new_commit }}':refs/heads/master
 
       - name: Open or bump failure issue
         if: failure()
