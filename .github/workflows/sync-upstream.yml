@@ -30,7 +30,7 @@ jobs:
           app-id: ${{ secrets.FORK_SYNC_APP_ID }}
           private-key: ${{ secrets.FORK_SYNC_APP_KEY }}
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: peerdb
           fetch-depth: 0
@@ -78,7 +78,7 @@ jobs:
           echo "PeerDB uses go $version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ steps.go.outputs.version }}
           check-latest: true
