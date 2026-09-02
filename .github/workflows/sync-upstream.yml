@@ -36,40 +36,39 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
-      - name: Find upstream release tag
-        id: tags
+      # The target tag is the upstream base's major.minor plus the number
+      # of extra commits in the fork. A release is due whenever that tag
+      # doesn't exist yet — a new upstream release, freshly merged fork PRs,
+      # or both. The upstream tag goes to FETCH_HEAD, never a local tag ref
+      # (the fork's own tag names live in the same vX.Y.Z namespace).
+      - name: Determine release
+        id: rel
         run: |
           git remote add upstream https://github.com/golang/crypto
           latest=$(git ls-remote --tags upstream 'v*' | awk -F/ '{print $NF}' \
             | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
-          current=$(git ls-remote --tags origin 'v*' | awk -F/ '{print $NF}' \
-            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
-          # Fork fixup tags use the patch slot, so compare on major.minor.
-          base="v$(echo "$current" | cut -d. -f1-2 | tr -d v).0"
-          if [ "$(printf '%s\n%s\n' "$latest" "$base" | sort -V | tail -1)" = "$base" ]; then
-            echo "Up to date: fork $current, upstream $latest"
-            echo "new=" >> "$GITHUB_OUTPUT"
+          git fetch --no-tags upstream "refs/tags/$latest"
+          new_commit=$(git rev-parse 'FETCH_HEAD^{commit}')
+          base_commit=$(git merge-base HEAD "$new_commit")
+          n=$(git rev-list --count "$base_commit..HEAD")
+          target="${latest%.*}.$n"
+          if git ls-remote --exit-code origin "refs/tags/$target" >/dev/null; then
+            echo "Up to date: $target already released"
+            echo "target=" >> "$GITHUB_OUTPUT"
           else
-            echo "New upstream tag: $latest (fork is on $current, base $base)"
-            echo "new=$latest" >> "$GITHUB_OUTPUT"
-            echo "base=$base" >> "$GITHUB_OUTPUT"
+            echo "Release due: $target (upstream $latest + $n fork commits)"
+            echo "target=$target" >> "$GITHUB_OUTPUT"
           fi
+          echo "new_commit=$new_commit" >> "$GITHUB_OUTPUT"
+          echo "base_commit=$base_commit" >> "$GITHUB_OUTPUT"
 
-      # Upstream tag names collide with the fork's own (patched) tags, so the
-      # upstream tag is fetched into FETCH_HEAD instead of a local tag ref,
-      # and the rebase base is the merge-base rather than a tag name.
-      - name: Rebase fork commits onto new tag
-        id: rebase
-        if: steps.tags.outputs.new != ''
+      - name: Rebase fork commits onto new upstream base
+        if: steps.rel.outputs.target != '' && steps.rel.outputs.base_commit != steps.rel.outputs.new_commit
         run: |
           git config user.name 'peerdb-fork-sync[bot]'
           git config user.email 'peerdb-fork-sync[bot]@users.noreply.github.com'
-          git fetch --no-tags upstream 'refs/tags/${{ steps.tags.outputs.new }}'
-          new_commit=$(git rev-parse 'FETCH_HEAD^{commit}')
-          base_commit=$(git merge-base HEAD "$new_commit")
-          echo "Rebasing $(git rev-list --count "$base_commit"..HEAD) fork commits from $base_commit onto $new_commit"
-          git rebase --onto "$new_commit" "$base_commit" peerdb
-          echo "new_commit=$new_commit" >> "$GITHUB_OUTPUT"
+          echo "Rebasing onto ${{ steps.rel.outputs.new_commit }}"
+          git rebase --onto '${{ steps.rel.outputs.new_commit }}' '${{ steps.rel.outputs.base_commit }}' peerdb
 
       - name: Determine PeerDB Go version
         id: go
@@ -93,20 +92,15 @@ jobs:
           go build ./...
           go test ./ssh/
 
-      # The fork tag's patch version is the number of fork-local commits
-      # (upstream only tags vX.Y.0), so every cut gets a fresh tag name and
-      # published tags are never recreated. master mirrors the upstream base
-      # of the current release, so master...peerdb always shows the full
-      # fork delta.
+      # master mirrors the upstream base of the current release, so
+      # master...peerdb always shows the full fork delta.
       - name: Push branch, tag, and upstream-base master
-        if: steps.tags.outputs.new != ''
+        if: steps.rel.outputs.target != ''
         run: |
           git push --force origin peerdb
-          n=$(git rev-list --count '${{ steps.rebase.outputs.new_commit }}'..peerdb)
-          tag="$(echo '${{ steps.tags.outputs.new }}' | sed 's/\.0$//').$n"
-          git tag "$tag" peerdb
-          git push origin "refs/tags/$tag"
-          git push origin '${{ steps.rebase.outputs.new_commit }}':refs/heads/master
+          git tag '${{ steps.rel.outputs.target }}' peerdb
+          git push origin 'refs/tags/${{ steps.rel.outputs.target }}'
+          git push origin '${{ steps.rel.outputs.new_commit }}':refs/heads/master
 
       # Each failing run opens its own issue; a green run closes every open
       # sync-failure issue. Alerting subscribes to issue open/close events,
