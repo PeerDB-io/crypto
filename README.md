@@ -1,53 +1,72 @@
 # PeerDB fork of golang.org/x/crypto
 
-PeerDB's fork of [golang/crypto](https://github.com/golang/crypto), carrying
-a single patch: the SSH channel receive window in the `ssh` package is raised
-from 2 MiB to 8 MiB (`channelWindowSize` in `ssh/channel.go`), which upstream
-doesn't make configurable. PeerDB moves bulk CDC traffic through SSH tunnels;
-on high-bandwidth, high-latency links the 2 MiB window caps throughput.
+PeerDB's fork of [golang/crypto](https://github.com/golang/crypto). It
+carries one patch: the SSH channel receive window in the `ssh` package is
+raised from upstream's hardcoded 2 MiB to 8 MiB (`channelWindowSize` in
+`ssh/channel.go`). PeerDB moves bulk CDC (change data capture) traffic
+through SSH tunnels, and SSH throughput caps at window ÷ round-trip time, so
+on high-bandwidth, high-latency links the 2 MiB window holds throughput
+below link capacity.
 
-## How it works
+## Layout
 
-- `peerdb` (default branch) carries the fork-local commits: the patch, this
-  README, and the sync workflow. It changes only via pull request and is
-  never force-pushed. `master` mirrors upstream and is never patched.
-- Releases are tags, cut by automation: fork tag `vX.Y.0` = upstream tag
-  `vX.Y.0` + the fork-local commits cherry-picked on top. Fork-only fixups
-  use the patch slot (`vX.Y.1`). Tags are immutable — the Go module proxy
-  pins tag→hash on first fetch; never move one.
-- A daily workflow (`.github/workflows/sync-upstream.yml`) looks for new
-  upstream release tags, cherry-picks the fork-local commits onto them, runs
-  the `ssh` package tests with PeerDB's Go version, and pushes the matching
-  fork tag. On failure it opens (or bumps) a `sync-failure` issue here.
-- [PeerDB](https://github.com/PeerDB-io/peerdb) consumes this fork via
-  `replace golang.org/x/crypto => github.com/PeerDB-io/crypto` in
-  `flow/go.mod`; Renovate there follows this repo's tags.
+| Ref | Contents | How it changes |
+|---|---|---|
+| `peerdb` (default branch) | The fork-local commits: the patch, this README, the sync workflow | Pull requests only |
+| `master` | Upstream mirror from fork time; unused by the pipeline | Static |
+| `vX.Y.0` tags | Upstream tag `vX.Y.0` + the fork-local commits | Cut by the sync workflow |
+| `vX.Y.1`, `vX.Y.2`, … tags | Fork-only fixups on the same upstream base | Cut by hand |
 
-## Diff vs upstream
+Tags are immutable: the Go module proxy pins tag→hash on first fetch, so a
+published tag must never move. Upstream only ever tags `vX.Y.0`, which
+leaves the patch slot free for fork fixups. To see the full delta:
+`git diff vX.Y.0 <fork tag>` against the matching upstream tag.
 
-`git diff vX.Y.0 <fork tag vX.Y.z>` against the matching upstream tag —
-expected to stay a handful of lines in `ssh/channel.go` plus this README and
-the sync workflow.
+## Staying current with upstream
+
+`.github/workflows/sync-upstream.yml` runs daily (and on manual dispatch):
+
+1. Checks upstream for a release tag newer than the fork's newest tag.
+2. Cherry-picks the fork-local commits from `peerdb` onto the new upstream
+   tag as a detached head; the `peerdb` branch itself is untouched.
+3. Builds all packages and tests the root `ssh` package, using the Go
+   version from PeerDB's `flow/go.mod`.
+4. Pushes the matching fork tag.
+
+On failure the workflow opens a `sync-failure` issue, comments on it on each
+subsequent failing day, and the next green run closes it.
+
+Validation covers the root `ssh` package, which runs full in-memory
+handshakes against the patched code. The `ssh/test` and `ssh/agent`
+packages replay recorded transcripts that embed upstream's 2 MiB window, so
+they fail against this patch and are excluded.
+
+## How PeerDB consumes it
+
+`flow/go.mod` in [PeerDB](https://github.com/PeerDB-io/peerdb) keeps
+`require golang.org/x/crypto` and adds
+`replace golang.org/x/crypto => github.com/PeerDB-io/crypto`. Renovate in
+that repo follows this repo's tags and opens the bump PRs.
 
 ## Maintenance
 
-- **Sync failure**: check the open `sync-failure` issue and the failed run.
-  Usually a cherry-pick conflict with a new upstream release or a test
-  failure: adjust the fork-local commits on `peerdb` via PR until they apply
-  cleanly, then re-run the workflow (`workflow_dispatch`).
-- **Changing the patch**: PR against `peerdb`. To release the change without
-  waiting for the next upstream tag, cut a patch-slot tag by hand: cherry-pick
-  the fork-local commits onto the current upstream base tag and push the tag
-  (if `peerdb` already sits on the current base, just tag `peerdb`). The
-  PeerDB repo picks it up via Renovate.
+- **Sync failure**: the open `sync-failure` issue links the failed run.
+  Typical causes: a cherry-pick conflict with a new upstream release, or an
+  `ssh` test failure. Adjust the fork-local commits on `peerdb` via PR until
+  they apply cleanly, then re-run the workflow.
+- **Changing the patch**: PR against `peerdb`. To release without waiting
+  for the next upstream tag, cherry-pick the fork-local commits onto the
+  current upstream base tag and push the next patch-slot tag; when `peerdb`
+  already sits on the current base, tag `peerdb` directly.
 - Keep the delta minimal.
 
-## Not a general-purpose fork
+## Scope
 
-Don't depend on this module — use `golang.org/x/crypto`. Issues in this repo
-are only for the fork's automation; report `ssh` package issues
-[upstream](https://go.dev/issues).
+This fork exists for PeerDB. Other projects should depend on
+`golang.org/x/crypto`, and `ssh` package issues belong
+[upstream](https://go.dev/issues). Issues in this repo cover the fork's
+automation only.
 
 ## License
 
-Same BSD-style license as upstream; see `LICENSE`.
+Upstream's BSD-style license applies; see `LICENSE`.
