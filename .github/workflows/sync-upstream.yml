@@ -6,10 +6,9 @@ on:
   workflow_dispatch:
 
 # Pushes use an app installation token; the built-in token only handles the
-# failure issue and the inactivity-timer reset.
+# inactivity-timer reset.
 permissions:
   contents: read
-  issues: write
   actions: write
 
 jobs:
@@ -102,25 +101,13 @@ jobs:
           git push origin 'refs/tags/${{ steps.rel.outputs.target }}'
           git push origin '${{ steps.rel.outputs.new_commit }}':refs/heads/master
 
-      # Each failing run opens its own issue; a green run closes every open
-      # sync-failure issue. Alerting subscribes to issue open/close events,
-      # so each failure and each recovery notifies exactly once.
-      - name: Open failure issue
-        if: failure()
+      # A fully green run pings the heartbeat monitor; when pings stop —
+      # a failing run or a schedule that stopped firing — the team is
+      # alerted. Inline curl: this workflow uses GitHub-official actions
+      # only.
+      - name: Heartbeat
         env:
-          GH_TOKEN: ${{ github.token }}
+          SYNC_HEARTBEAT_URL: ${{ secrets.SYNC_HEARTBEAT_URL }}
+          SYNC_HEARTBEAT_TOKEN: ${{ secrets.SYNC_HEARTBEAT_TOKEN }}
         run: |
-          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          gh label create sync-failure -R "${{ github.repository }}" --force --description 'Upstream sync is broken'
-          body="The upstream sync workflow failed: $run_url"$'\n\n'"Likely a rebase conflict with a new upstream release, or an ssh test failure. See README's Maintenance section. Each failing run opens a new issue; the next green run closes all open ones."
-          gh issue create -R "${{ github.repository }}" --title "Upstream sync failing ($(date -u +%Y-%m-%d))" --label sync-failure --body "$body"
-
-      - name: Close failure issues on recovery
-        if: success()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh issue list -R "${{ github.repository }}" --label sync-failure --state open --json number --jq '.[].number' \
-            | while read -r n; do
-                gh issue close "$n" -R "${{ github.repository }}" --comment 'Sync succeeded; closing.'
-              done
+          curl -fsS -m 10 --retry 3 -H "Authorization: Bearer $SYNC_HEARTBEAT_TOKEN" "$SYNC_HEARTBEAT_URL"
